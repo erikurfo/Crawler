@@ -26,21 +26,36 @@ class Crawler:
         words = text.split()
 
         # Убираем знаки препинания, переводим в нижний регистр и удаляем пустые элементы
+        # Можно потом сделать с помощью библиотеки pymorphy2(?)
         words = [re.sub(r'[^\w\s]', '', word) for word in words]
         words = [item.lower() for item in words if item != '']
 
         curs = self.conn.cursor()
 
+        # Находим rowid для ссылки
+        curs.execute("""SELECT rowid from URLList WHERE URL = (?);""", (url,))
+        link_rowid = curs.fetchone()
+        location = 0
+
         morph = MorphAnalyzer()
 
         # Делаем запрос в базу данных и проверяем наличие слова
-        location = 0
         for word in words:
             word = morph.normal_forms(word)[0]
+
+            # Собираем записанные в таблицу wordlist из бд слова в results
             curs.execute("""SELECT word FROM wordList;""")
-            results = [word[0] for word in curs.fetchall()]
+            results = [word_[0] for word_ in curs.fetchall()]
+
             if not word in results:
                 curs.execute("""INSERT INTO wordlist VALUES (?, ?, ?);""", (None, word, 0))
+            
+            # Ищем данное слово в wordlist, чтобы занести в wordlocation
+            curs.execute("""SELECT rowid FROM wordList WHERE word = (?);""", (word,))
+            word_rowid = curs.fetchone()
+            curs.execute("""INSERT INTO wordLocation VALUES (?, ?, ?, ?);""", (None, word_rowid[0], link_rowid[0], location))
+            location += 1
+
         self.conn.commit()
 
     # 4. Проиндексирован ли URL (проверка наличия URL в БД)

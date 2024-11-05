@@ -112,19 +112,25 @@ class Crawler:
                 ); """
             )
         
+        # Нельзя: изменять значения в списке python
+        # Можно: использовать генераторы списков (list comprehension) и перезаписать изначальный список
+        urlList = [element.rstrip('/') for element in urlList]
+
+
         # Вставка первых двух ссылок
         for url_ in urlList:
-            curs.execute("""INSERT INTO URLList (rowid, URL) VALUES (?, ?);""", (None, url_))
+            curs.execute("""INSERT INTO URLList (URL) VALUES (?);""", (url_,))
+        
+        counter = 1
 
         for _ in range(0, maxDepth):
-            counter = 0
             new_URLs = []
             for url_ in urlList:
 
                 # Счётчик для контроля
-                print("parse", url_)
+                print("parse: ", counter,") ", url_)
                 counter += 1
-                if counter == 5: exit()
+                if counter == 10: exit()
                 ######################
 
                 html_doc = requests.get(url_).text
@@ -134,6 +140,7 @@ class Crawler:
                     new_link = link.get('href')
                     if type(new_link) is str:
                         if not "#" in new_link:
+                            new_link = new_link.rstrip("/")
                             if new_link.startswith('/'):
                                 new_link = urljoin(url_, new_link)
                             if new_link.startswith('http://') or new_link.startswith('https://'):
@@ -153,9 +160,7 @@ class Crawler:
 
 if __name__ == '__main__':
     crawler = Crawler('DB.db')
-    links = ['https://www.tadviser.ru/']
-    # links = ['https://www.tadviser.ru/', 'https://elementy.ru/']
-    # links = ['https://history.eco/']
+    links = ['https://history.eco/']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
     crawler.crawl(links, 2)

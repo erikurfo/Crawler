@@ -114,7 +114,7 @@ class Crawler:
         
         # Нельзя: изменять значения в списке python
         # Можно: использовать генераторы списков (list comprehension) и перезаписать изначальный список
-        urlList = [element.rstrip('/') for element in urlList]
+        urlList = [url_.rstrip('/') for url_ in urlList]
 
 
         # Вставка первых двух ссылок
@@ -126,9 +126,11 @@ class Crawler:
         for _ in range(0, maxDepth):
             new_URLs = []
             for url_ in urlList:
+                curs.execute("""SELECT rowid FROM URLList WHERE URL = (?);""", (url_,))
+                fk_FromURL = curs.fetchone()
 
                 # Счётчик для контроля
-                print("parse: ", counter,") ", url_)
+                print("parse", counter,") ", url_)
                 counter += 1
                 if counter == 10: exit()
                 ######################
@@ -147,8 +149,17 @@ class Crawler:
 
                                 curs.execute("""SELECT rowid FROM URLList WHERE URL = (?);""", (new_link,))
                                 res_of_search = curs.fetchone()
+
+                                # Проверяем наличие ссылки в базе - если есть, идём к следующей
                                 if not res_of_search is None: continue
-                                curs.execute("""INSERT INTO URLList (rowid, URL) VALUES (?, ?);""", (None, new_link))
+
+                                # Вставляем новую ссылку в таблицу URLList
+                                curs.execute("""INSERT INTO URLList VALUES (?, ?);""", (None, new_link))
+                                # Смотрим положение этой ссылки
+                                curs.execute("""SELECT rowid FROM URLList WHERE URL = (?)""", (new_link,))
+                                fk_ToURL = curs.fetchone()
+                                # Вставляем эту ссылку в таблицу linkBetweenURL
+                                curs.execute("""INSERT INTO linkBetweenURL VALUES (?, ?, ?);""", (None, fk_FromURL[0], fk_ToURL[0]))
 
                                 new_URLs.append(new_link)
                                 # print(new_link)
@@ -160,7 +171,7 @@ class Crawler:
 
 if __name__ == '__main__':
     crawler = Crawler('DB.db')
-    links = ['https://history.eco/']
+    links = ['https://history.eco']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
     crawler.crawl(links, 2)

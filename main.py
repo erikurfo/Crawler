@@ -132,13 +132,22 @@ class Crawler:
                 # Счётчик для контроля
                 print("parse", counter,") ", url_)
                 counter += 1
-                if counter == 10: exit()
+                if counter == 3: exit()
                 ######################
 
                 html_doc = requests.get(url_).text
                 soup = BeautifulSoup(html_doc, "html.parser")
+
+                all_links = soup.find_all('a')
             
-                for link in soup.find_all('a'):
+                for link in all_links:
+
+                    # Получаем текст внутри тега <a>
+                    link_text = link.get_text()
+                    if link_text: print(link_text.strip())
+
+
+
                     new_link = link.get('href')
                     if type(new_link) is str:
                         if not "#" in new_link:

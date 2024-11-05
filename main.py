@@ -112,10 +112,21 @@ class Crawler:
                 ); """
             )
         
-        for currDepth in range(0, maxDepth):
+        # Вставка первых двух ссылок
+        for url_ in urlList:
+            curs.execute("""INSERT INTO URLList (rowid, URL) VALUES (?, ?);""", (None, url_))
+
+        for _ in range(0, maxDepth):
+            counter = 0
             new_URLs = []
             for url_ in urlList:
-                curs.execute("""INSERT INTO URLList (rowid, URL) VALUES (?, ?);""", (None, url_))
+
+                # Счётчик для контроля
+                print("parse", url_)
+                counter += 1
+                if counter == 5: exit()
+                ######################
+
                 html_doc = requests.get(url_).text
                 soup = BeautifulSoup(html_doc, "html.parser")
             
@@ -123,21 +134,28 @@ class Crawler:
                     new_link = link.get('href')
                     if type(new_link) is str:
                         if not "#" in new_link:
-                            if new_link.startswith('http://') or new_link.startswith('https://'):
-                                new_URLs.append(new_link)
-                                # print(new_link)
-                            elif new_link.startswith('/'):
+                            if new_link.startswith('/'):
                                 new_link = urljoin(url_, new_link)
+                            if new_link.startswith('http://') or new_link.startswith('https://'):
+
+                                curs.execute("""SELECT rowid FROM URLList WHERE URL = (?);""", (new_link,))
+                                res_of_search = curs.fetchone()
+                                if not res_of_search is None: continue
+                                curs.execute("""INSERT INTO URLList (rowid, URL) VALUES (?, ?);""", (None, new_link))
+
                                 new_URLs.append(new_link)
                                 # print(new_link)
                 self.addToIndex(soup, url_)
-            self.conn.commit()    
+
+            self.conn.commit()
+            urlList = new_URLs
 
 
 if __name__ == '__main__':
     crawler = Crawler('DB.db')
     links = ['https://www.tadviser.ru/']
+    # links = ['https://www.tadviser.ru/', 'https://elementy.ru/']
     # links = ['https://history.eco/']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
-    crawler.crawl(links, 1)
+    crawler.crawl(links, 2)

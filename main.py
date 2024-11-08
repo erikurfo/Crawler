@@ -132,7 +132,7 @@ class Crawler:
                 # Счётчик для контроля
                 print("parse", counter,") ", url_)
                 counter += 1
-                if counter == 3: exit()
+                if counter == 10: exit()
                 ######################
 
                 html_doc = requests.get(url_).text
@@ -144,8 +144,12 @@ class Crawler:
 
                     # Получаем текст внутри тега <a>
                     link_text = link.get_text()
-                    if link_text: print(link_text.strip())
 
+                    # Убираем пустые строки и лишние пробелы
+                    if link_text: link_text = link_text.strip()
+
+                    # Разбиваем на слова
+                    link_words = link_text.split()
 
 
                     new_link = link.get('href')
@@ -183,4 +187,4 @@ if __name__ == '__main__':
     links = ['https://history.eco']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
-    crawler.crawl(links, 2)
+    crawler.crawl(links, 1)

@@ -17,6 +17,11 @@ class Crawler:
         print("Fin")
         self.conn.close()
 
+    # Получение текста страницы
+    def getTextOnly(self, text):
+        return ""
+
+
     # 1. Индексирование одной страницы
     def addToIndex(self, soup, url):
         listUnwantedItems = ['script', 'style']
@@ -184,7 +189,8 @@ class Crawler:
 
 if __name__ == '__main__':
     crawler = Crawler('DB.db')
-    links = ['https://history.eco']
+    # links = ['https://history.eco']
+    links = ['https://www.reddit.com/?rdt=35077']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
     crawler.crawl(links, 1)

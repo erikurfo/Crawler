@@ -1,9 +1,8 @@
 from bs4 import BeautifulSoup
 import sqlite3
+import re
 import requests
 from urllib.parse import urljoin
-import re
-from pymorphy2 import MorphAnalyzer
 
 class Crawler:
 
@@ -11,87 +10,48 @@ class Crawler:
     def __init__(self, dbFileName):
         self.dbFileName = dbFileName
         self.conn = sqlite3.connect(self.dbFileName)
+        # self.initDB()
 
     # 0. Деструктор
     def __del__(self):
-        print("Fin")
         self.conn.close()
+        print("fin")
 
-    # Получение текста страницы
-    def getTextOnly(self, text):
-        return ""
-
-
-    # 1. Индексирование одной страницы
+    # Индексирование одной страницы
     def addToIndex(self, soup, url):
-        listUnwantedItems = ['script', 'style']
-        for script in soup.find_all(listUnwantedItems):
-            script.decompose()
-        text = soup.get_text()
-        words = text.split()
-
-        # Убираем знаки препинания, переводим в нижний регистр и удаляем пустые элементы
-        # Можно потом сделать с помощью библиотеки pymorphy2(?)
-        words = [re.sub(r'[^\w\s]', '', word) for word in words]
-        words = [item.lower() for item in words if item != '']
-
-        curs = self.conn.cursor()
-
-        # Находим rowid для ссылки
-        curs.execute("""SELECT rowid from URLList WHERE URL = (?);""", (url,))
-        link_rowid = curs.fetchone()
-        location = 0
-
-        morph = MorphAnalyzer()
-
-        # Делаем запрос в базу данных и проверяем наличие слова
-        for word in words:
-            word = morph.normal_forms(word)[0]
-
-            # Собираем записанные в таблицу wordlist из бд слова в results
-            curs.execute("""SELECT word FROM wordList;""")
-            results = [word_[0] for word_ in curs.fetchall()]
-
-            if not word in results:
-                curs.execute("""INSERT INTO wordlist VALUES (?, ?, ?);""", (None, word, 0))
-            
-            # Ищем данное слово в wordlist, чтобы занести в wordlocation
-            curs.execute("""SELECT rowid FROM wordList WHERE word = (?);""", (word,))
-            word_rowid = curs.fetchone()
-            curs.execute("""INSERT INTO wordLocation VALUES (?, ?, ?, ?);""", (None, word_rowid[0], link_rowid[0], location))
-            location += 1
-
-        self.conn.commit()
-
-    # 4. Проиндексирован ли URL (проверка наличия URL в БД)
-    def isIndexed(self, url):
-        return False
- 
-    # 5. Добавление ссылки с одной страницы на другую
-    def addLinkRef(self, urlFrom, urlTo, linkText):
         pass
 
+    # Разбиение текста на слова
+    # Функция возвращает список слов
+    def separateWords(self, text):
+        words = text.split()
+        # Убираем знаки препинания, 
+        # переводим в нижний регистр и удаляем пустые элементы
+        words = [re.sub(r'[^\w\s]', '', word) for word in words]
+        words = [item.lower() for item in words if item != '']
+        return words
+ 
+    # Инициализация таблиц в БД
+    def initDB(self):
+        cursor = self.conn.cursor()
+        cursor.execute("""DROP TABLE IF EXISTS wordlist;""")
+        cursor.execute("""DROP TABLE IF EXISTS URLList;""")
+        cursor.execute("""DROP TABLE IF EXISTS wordLocation;""")
+        cursor.execute("""DROP TABLE IF EXISTS linkBetweenURL;""")
+        cursor.execute("""DROP TABLE IF EXISTS linkWord;""")
 
-    def crawl(self, urlList, maxDepth = 1):
-        curs = self.conn.cursor()
-        curs.execute("""DROP TABLE IF EXISTS wordlist;""")
-        curs.execute("""DROP TABLE IF EXISTS URLList;""")
-        curs.execute("""DROP TABLE IF EXISTS wordLocation;""")
-        curs.execute("""DROP TABLE IF EXISTS linkBetweenURL;""")
-        curs.execute("""DROP TABLE IF EXISTS linkWord;""")
-
-        curs.execute("""CREATE TABLE IF NOT EXISTS wordlist  (
+        cursor.execute("""CREATE TABLE IF NOT EXISTS wordlist  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                                     word TEXT NOT NULL,
                                     isFiltred INTEGER NOT NULL
                 ); """
             )
-        curs.execute("""CREATE TABLE IF NOT EXISTS URLList  (
+        cursor.execute("""CREATE TABLE IF NOT EXISTS URLList  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                                     URL TEXT NOT NULL
                 ); """
             )
-        curs.execute("""CREATE TABLE IF NOT EXISTS wordLocation  (
+        cursor.execute("""CREATE TABLE IF NOT EXISTS wordLocation  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                                     fk_wordId INTEGER NOT NULL,
                                     fk_URLId INTEGER NOT NULL,
@@ -100,7 +60,7 @@ class Crawler:
                                     FOREIGN KEY (fk_URLId) REFERENCES URLList(rowId)
                 ); """
             )
-        curs.execute("""CREATE TABLE IF NOT EXISTS linkBetweenURL  (
+        cursor.execute("""CREATE TABLE IF NOT EXISTS linkBetweenURL  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                                     fk_FromURL_Id INTEGER NOT NULL,
                                     fk_ToURLId INTEGER NOT NULL,
@@ -108,7 +68,7 @@ class Crawler:
                                     FOREIGN KEY (fk_ToURLId) REFERENCES URLList(rowId)
                 ); """
             )
-        curs.execute("""CREATE TABLE IF NOT EXISTS linkWord  (
+        cursor.execute("""CREATE TABLE IF NOT EXISTS linkWord  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                                     fk_wordId INTEGER NOT NULL,
                                     fk_linkId INTEGER NOT NULL,
@@ -116,75 +76,71 @@ class Crawler:
                                     FOREIGN KEY (fk_linkId) REFERENCES linkBetweenURL(rowId)
                 ); """
             )
-        
-        # Нельзя: изменять значения в списке python
-        # Можно: использовать генераторы списков (list comprehension) и перезаписать изначальный список
-        urlList = [url_.rstrip('/') for url_ in urlList]
 
+    # Вспомогательная функция для получения идентификатора записи
+    def getEntryId(self, tableName, fieldName, value):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT rowid FROM ' + tableName + 
+                       ' WHERE ' + fieldName + 
+                       ' = (?);', (value,))
+        row_id = cursor.fetchone()
+        return None if row_id is None else row_id[0]
+
+    # Проиндексирован ли URL (проверка наличия URL в БД)
+    def isIndexed(self, url):
+        result = self.getEntryId('URLList', 'URL', url)
+        return False if result is None else True
+ 
+    # Добавление ссылки с одной страницы на другую
+    def addLinkRef(self, urlFrom, urlTo, linkText):
+        cursor = self.conn.cursor()
+        cursor.execute('INSERT INTO linkBetweenURL VALUES (?, ?, ?);', 
+                       (None, urlFrom, urlTo))
+        last_entry = cursor.lastrowid()
+        linkwords_list = self.separateWords(linkText)
+        for _word_ in linkwords_list:
+            word_rowid = self.getEntryId('wordList', 'rowid', _word_)
+            cursor.execute('INSERT INTO linkWord VALUES (?, ?, ?);',
+                           (None, word_rowid, last_entry))
+            
+    def filteredLinks(self, links_list, sourceURL):
+        cursor = self.conn.cursor()
+        new_URLs = []
+        for link in links_list:
+            # текст в ссылке
+            _a_tag_text = link.get_text().strip()
+            new_link = link.get('href').rstrip('/')
+            if "#" in new_link: continue
+            if new_link.startswith('/'): 
+                new_link = urljoin(sourceURL, new_link)
+            if self.isIndexed(new_link): continue
+
+            cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, new_link))
+            self.addLinkRef(link, new_link, _a_tag_text)
+            new_URLs.append(new_link)
+        return new_URLs
+
+
+    # Непосредственно сам метод сбора данных.
+    def crawl(self, urlList, maxDepth = 1):
+        cursor = self.conn.cursor()
+
+        urlList = [url_.rstrip('/') for url_ in urlList]
 
         # Вставка первых двух ссылок
         for url_ in urlList:
-            curs.execute("""INSERT INTO URLList (URL) VALUES (?);""", (url_,))
-        
-        counter = 1
+            cursor.execute("""INSERT INTO URLList (URL) VALUES (?);""", (url_,))
 
         for _ in range(0, maxDepth):
-            new_URLs = []
             for url_ in urlList:
-                curs.execute("""SELECT rowid FROM URLList WHERE URL = (?);""", (url_,))
-                fk_FromURL = curs.fetchone()
-
-                # Счётчик для контроля
-                print("parse", counter,") ", url_)
-                counter += 1
-                if counter == 10: exit()
-                ######################
-
                 html_doc = requests.get(url_).text
                 soup = BeautifulSoup(html_doc, "html.parser")
 
+                # Кусок со ссылками, надо перенести в конец
                 all_links = soup.find_all('a')
-            
-                for link in all_links:
-
-                    # Получаем текст внутри тега <a>
-                    link_text = link.get_text()
-
-                    # Убираем пустые строки и лишние пробелы
-                    if link_text: link_text = link_text.strip()
-
-                    # Разбиваем на слова
-                    link_words = link_text.split()
+                self.filteredLinks(all_links. url_)
 
 
-                    new_link = link.get('href')
-                    if type(new_link) is str:
-                        if not "#" in new_link:
-                            new_link = new_link.rstrip("/")
-                            if new_link.startswith('/'):
-                                new_link = urljoin(url_, new_link)
-                            if new_link.startswith('http://') or new_link.startswith('https://'):
-
-                                curs.execute("""SELECT rowid FROM URLList WHERE URL = (?);""", (new_link,))
-                                res_of_search = curs.fetchone()
-
-                                # Проверяем наличие ссылки в базе - если есть, идём к следующей
-                                if not res_of_search is None: continue
-
-                                # Вставляем новую ссылку в таблицу URLList
-                                curs.execute("""INSERT INTO URLList VALUES (?, ?);""", (None, new_link))
-                                # Смотрим положение этой ссылки
-                                curs.execute("""SELECT rowid FROM URLList WHERE URL = (?)""", (new_link,))
-                                fk_ToURL = curs.fetchone()
-                                # Вставляем эту ссылку в таблицу linkBetweenURL
-                                curs.execute("""INSERT INTO linkBetweenURL VALUES (?, ?, ?);""", (None, fk_FromURL[0], fk_ToURL[0]))
-
-                                new_URLs.append(new_link)
-                                # print(new_link)
-                self.addToIndex(soup, url_)
-
-            self.conn.commit()
-            urlList = new_URLs
 
 
 if __name__ == '__main__':
@@ -194,3 +150,4 @@ if __name__ == '__main__':
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
     crawler.crawl(links, 1)
+    # print(crawler.getEntryId('wordList', 'word', 'skip'))

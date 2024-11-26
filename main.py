@@ -2,17 +2,15 @@ from bs4 import BeautifulSoup
 import sqlite3
 import re
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 class Crawler:
 
-    # 0. Конструктор Инициализация паука с параметрами БД
     def __init__(self, dbFileName):
         self.dbFileName = dbFileName
         self.conn = sqlite3.connect(self.dbFileName)
         self.initDB()
 
-    # 0. Деструктор
     def __del__(self):
         self.conn.close()
         print('fin')
@@ -41,9 +39,6 @@ class Crawler:
             word_location += 1
         self.conn.commit()
 
-
-    # Разбиение текста на слова
-    # Функция возвращает список слов
     def separateWords(self, text):
         words = text.split()
         # Убираем знаки препинания, 
@@ -135,6 +130,7 @@ class Crawler:
             if '#' in new_link: continue
             if new_link.startswith('/'): 
                 new_link = urljoin(sourceURL, new_link)
+            new_link = new_link.replace('/www.', '/')
             if self.isIndexed(new_link): continue
 
             cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, new_link))
@@ -142,11 +138,9 @@ class Crawler:
             new_URLs.append(new_link)
         return new_URLs
 
-
     # Непосредственно сам метод сбора данных.
     def crawl(self, urlList, maxDepth = 1):
         cursor = self.conn.cursor()
-
         urlList = [url_.rstrip('/') for url_ in urlList]
 
         # Вставка первых двух ссылок

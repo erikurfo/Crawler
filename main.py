@@ -2,7 +2,7 @@ from bs4 import BeautifulSoup
 import sqlite3
 import re
 import requests
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 class Crawler:
 
@@ -121,35 +121,48 @@ class Crawler:
                                (None, word_rowid, last_entry))
             
     def filteredLinks(self, links_list, sourceURL):
-        cursor = self.conn.cursor()
+        sourceURL_fk = self.getEntryId('URLList', 'URL', sourceURL)
         new_URLs = []
         for link in links_list:
             # текст в ссылке
             _a_tag_text = link.get_text().strip()
-            new_link = link.get('href').rstrip('/')
-            if '#' in new_link: continue
-            if new_link.startswith('/'): 
-                new_link = urljoin(sourceURL, new_link)
-            new_link = new_link.replace('/www.', '/')
+            new_link = link.get('href')
+            if not new_link: continue
+
+            new_link = self.normalizeURL(new_link, sourceURL)
+            if (new_link == 'incorrect') or ('#' in new_link): continue
             if self.isIndexed(new_link): continue
 
-            cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, new_link))
-            self.addLinkRef(sourceURL, new_link, _a_tag_text)
+            self.addLinkRef(sourceURL_fk, new_link, _a_tag_text)
             new_URLs.append(new_link)
+        self.conn.commit()
         return new_URLs
+    
+    def normalizeURL(self, url, sourceURL):
+        url = url.rstrip('/')
+        parsed = urlparse(url)
+        if url.startswith('/'): 
+            url = urljoin(sourceURL, url)
+        if not parsed.scheme or not parsed.netloc: return 'incorrect'
+        netloc = parsed.netloc.lstrip('www.').lower()
+        scheme = parsed.scheme.lower()
+        normalized = parsed._replace(scheme=scheme, netloc=netloc)
+        return urlunparse(normalized)
+    
+    def insertLink(self, link_):
+        cursor = self.conn.cursor()
+        if not self.isIndexed(link_):
+            cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, link_))
 
     # Непосредственно сам метод сбора данных.
     def crawl(self, urlList, maxDepth = 1):
-        cursor = self.conn.cursor()
+        new_links = []
         urlList = [url_.rstrip('/') for url_ in urlList]
 
-        # Вставка первых двух ссылок
-        for url_ in urlList:
-            cursor.execute('INSERT INTO URLList (URL) VALUES (?);', (url_,))
-
         for _ in range(0, maxDepth):
-            for url_ in urlList:
-                print(url_)
+            print(urlList)
+            for url_ in urlList: 
+                self.insertLink(url_)
                 html_doc = requests.get(url_)
                 html_doc.encoding = 'utf-8'
                 soup = BeautifulSoup(html_doc.text, 'html.parser')
@@ -157,18 +170,23 @@ class Crawler:
                 self.addToIndex(soup, url_)
 
                 all_links = soup.find_all('a')
-                urlList = self.filteredLinks(all_links, url_)
-                
-                self.conn.commit()
+                new_links += self.filteredLinks(all_links, url_)
+            print('end')
+            urlList = [element for element in new_links]
+        
+        # Добавление в бд новых ссылок после окончания обработки
+        for link_ in urlList: self.insertLink(link_)
+        self.conn.commit()
 
 
 if __name__ == '__main__':
 
     crawler = Crawler('DB.db')
-    # links = ['https://history.eco']
+    links = ['https://history.eco']
     # links = ['https://www.reddit.com/?rdt=35077']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
-    links = ['http://127.0.0.1:8080/1_leguria.html']
+    # links = ['http://127.0.0.1:8080/2_somepage.html']
+    # links = ['http://127.0.0.1:8080/1_leguria.html']
 
-    crawler.crawl(links, 2)
+    crawler.crawl(links, 1)

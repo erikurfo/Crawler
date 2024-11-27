@@ -15,10 +15,8 @@ class Crawler:
         self.conn.close()
         print('fin')
 
-    # Индексирование одной страницы
-    # Заполнение таблиц wordList и wordLocation
     def addToIndex(self, soup, url):
-        cursor = self.conn.cursor()
+
         link_rowid = self.getEntryId('URLList', 'URL', url)
 
         listOfUnwantedItems = ['script', 'style']
@@ -28,6 +26,17 @@ class Crawler:
 
         words = self.separateWords(text)
 
+        # индексация всего текста
+        self.indexingWords(words, link_rowid)
+
+        # работа со ссылками на странице
+        filtered_links = self.indexingLinks(soup, link_rowid, url)
+            
+        self.conn.commit()
+        return filtered_links
+    
+    def indexingWords(self, words, source_link_rowid):
+        cursor = self.conn.cursor()
         word_location = 0
         for word in words:
             word_rowid = self.getEntryId('wordList', 'word', word)
@@ -36,9 +45,10 @@ class Crawler:
                 cursor.execute('INSERT INTO wordList VALUES (?, ?, ?)', (None, word, 0))
                 word_rowid = cursor.lastrowid
             cursor.execute('INSERT INTO wordLocation VALUES (?, ?, ?, ?)', 
-                           (None, word_rowid, link_rowid, word_location))
+                           (None, word_rowid, source_link_rowid, word_location))
             word_location += 1
-
+    
+    def indexingLinks(self, soup, source_link_rowid, url):
         links_from_soup = soup.find_all('a')
         filtered_links = []
 
@@ -49,9 +59,7 @@ class Crawler:
                 self.insertLink(filtered_link)
                 _a_tag_text = every_link.get_text().strip()
                 filtered_link_fk = self.getEntryId('URLList', 'URL', filtered_link)
-                self.addLinkRef(link_rowid, filtered_link_fk, _a_tag_text)
-            
-        self.conn.commit()
+                self.addLinkRef(source_link_rowid, filtered_link_fk, _a_tag_text)
         return filtered_links
 
     def separateWords(self, text):
@@ -168,16 +176,16 @@ class Crawler:
         for start_urls in urlList:
             if self.normalizeURL(start_urls, start_urls):
                 self.insertLink(start_urls)
-
+        
+        new_links = []
         for _ in range(0, maxDepth):
-            print(urlList)
             for url_ in urlList: 
                 html_doc = requests.get(url_)
                 html_doc.encoding = 'utf-8'
                 soup = BeautifulSoup(html_doc.text, 'html.parser')
 
-                # Индексация и получение списка чистых ссылок со страницы
-                new_links = self.addToIndex(soup, url_)
+                # Индексация и получение списка чистых ссылок со страниц
+                new_links += self.addToIndex(soup, url_)
 
             print('end')
             urlList = [element for element in new_links]
@@ -192,6 +200,6 @@ if __name__ == '__main__':
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
     # links = ['http://127.0.0.1:8080/2_somepage.html']
-    links = ['http://127.0.0.1:8080/1_leguria.html']
+    links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
 
     crawler.crawl(links, 2)

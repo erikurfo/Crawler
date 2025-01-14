@@ -13,7 +13,7 @@ class Crawler:
 
     def __del__(self):
         self.conn.close()
-        print('fin')
+        print('final')
 
     def addToIndex(self, soup, url):
 
@@ -161,12 +161,19 @@ class Crawler:
         netloc = parsed.netloc.lstrip('www.').lower()
         scheme = parsed.scheme.lower()
         normalized = parsed._replace(scheme=scheme, netloc=netloc)
-        return urlunparse(normalized)
+        return urlunparse(normalized)  
     
     def insertLink(self, link_):
         cursor = self.conn.cursor()
         if not self.isIndexed(link_):
             cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, link_))
+
+    def monitoring(self):
+        list_of_tables = ['URLList', 'wordList', 'wordLocation', 'linkBetweenURL', 'linkWord']
+        for every_table in list_of_tables:
+            cursor = self.conn.cursor()
+            cursor.execute(f'SELECT COUNT(*) FROM {every_table};')
+            print("There are", cursor.fetchone()[0], "rows in", every_table)
 
     # Непосредственно сам метод сбора данных.
     def crawl(self, urlList, maxDepth = 1):
@@ -180,12 +187,14 @@ class Crawler:
         new_links = []
         for _ in range(0, maxDepth):
             for url_ in urlList: 
+                print('indexing', url_)
                 html_doc = requests.get(url_)
                 html_doc.encoding = 'utf-8'
                 soup = BeautifulSoup(html_doc.text, 'html.parser')
 
                 # Индексация и получение списка чистых ссылок со страниц
                 new_links += self.addToIndex(soup, url_)
+                self.monitoring()
 
             print('end')
             urlList = [element for element in new_links]
@@ -195,11 +204,11 @@ class Crawler:
 if __name__ == '__main__':
 
     crawler = Crawler('DB.db')
-    # links = ['https://history.eco']
+    links = ['https://history.eco']
     # links = ['https://www.reddit.com/?rdt=35077']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
     # links = ['http://127.0.0.1:8080/2_somepage.html']
-    links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
+    # links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
 
     crawler.crawl(links, 2)

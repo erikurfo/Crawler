@@ -42,7 +42,7 @@ class Crawler:
             word_rowid = self.getEntryId('wordList', 'word', word)
             if not word_rowid: 
                 # Реализовать isFiltered для третьей колонки
-                cursor.execute('INSERT INTO wordList VALUES (?, ?, ?)', (None, word, 0))
+                cursor.execute('INSERT INTO wordList VALUES (?, ?, ?)', (None, word, self.isFiltered(word)))
                 word_rowid = cursor.lastrowid
             cursor.execute('INSERT INTO wordLocation VALUES (?, ?, ?, ?)', 
                            (None, word_rowid, source_link_rowid, word_location))
@@ -82,7 +82,7 @@ class Crawler:
         cursor.execute('''CREATE TABLE IF NOT EXISTS wordList  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                                     word TEXT NOT NULL,
-                                    isFiltred INTEGER NOT NULL
+                                    isFiltered INTEGER NOT NULL
                 ); '''
             )
         cursor.execute('''CREATE TABLE IF NOT EXISTS URLList  (
@@ -167,15 +167,19 @@ class Crawler:
         cursor = self.conn.cursor()
         if not self.isIndexed(link_):
             cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, link_))
+    
+    def isFiltered(self, word):
+        # Исключим числа из индексации
+        return any(character.isdigit() for character in word)
 
     def monitoring(self):
         list_of_tables = ['URLList', 'wordList', 'wordLocation', 'linkBetweenURL', 'linkWord']
         for every_table in list_of_tables:
             cursor = self.conn.cursor()
             cursor.execute(f'SELECT COUNT(*) FROM {every_table};')
-            print("There are", cursor.fetchone()[0], "rows in", every_table)
+            print("There are\u001b[31m", cursor.fetchone()[0], "\u001b[0mrows in", every_table)
 
-    # Непосредственно сам метод сбора данных.
+    # Непосредственно сам метод сбора данных
     def crawl(self, urlList, maxDepth = 1):
 
         urlList = [url_.rstrip('/') for url_ in urlList]
@@ -187,7 +191,7 @@ class Crawler:
         new_links = []
         for _ in range(0, maxDepth):
             for url_ in urlList: 
-                print('indexing', url_)
+                print('indexing\033[32m', url_, '\033[0m')
                 html_doc = requests.get(url_)
                 html_doc.encoding = 'utf-8'
                 soup = BeautifulSoup(html_doc.text, 'html.parser')
@@ -196,10 +200,8 @@ class Crawler:
                 new_links += self.addToIndex(soup, url_)
                 self.monitoring()
 
-            print('end')
             urlList = [element for element in new_links]
         self.conn.commit()
-
 
 if __name__ == '__main__':
 

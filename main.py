@@ -231,7 +231,8 @@ class Crawler:
 
         # Построение графиков
         self.df.plot(x = 'Number of indexed links', y = 'URLlist rows',
-                     title = 'Число строк в таблице URLlist', )
+                     title = 'Число строк в таблице URLlist', grid = True)
+        plt.show()
 
 if __name__ == '__main__':
 
@@ -244,4 +245,4 @@ if __name__ == '__main__':
     # links = ['http://127.0.0.1:8080/2_somepage.html']
     # links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
 
-    crawler.crawl(links, 2)
+    crawler.crawl(links, 1)

@@ -202,7 +202,7 @@ class Crawler:
                 self.insertLink(start_urls)
         
         number_of_indexed_link = 0
-        self.df.loc[0] = [0, 0, 0, 0, 0]
+        self.df.loc[0] = [0, 0, 0, 0, 0, 0]
         new_links = []
         for _ in range(0, maxDepth):
             for url_ in urlList: 
@@ -227,22 +227,43 @@ class Crawler:
 
             urlList = [element for element in new_links]
         self.conn.commit()
-        print(self.df)
+        self.graphs()
 
-        # Построение графиков
+    # Построение графиков
+    def graphs(self):
         self.df.plot(x = 'Number of indexed links', y = 'URLlist rows',
-                     title = 'Число строк в таблице URLlist', grid = True)
-        plt.show()
+                     title = 'Число строк в таблице URLlist', grid = True, xlim=(0, None), ylim=(0, None))
+        plt.savefig('graph1.png')
+        plt.close()
+
+        self.df.plot(x = 'Number of indexed links', y = 'wordList rows',
+                     title = 'Число строк в таблице wordList', grid = True, xlim=(0, None), ylim=(0, None))
+        plt.savefig('graph2.png')
+        plt.close()
+
+        self.df.plot(x = 'Number of indexed links', y = 'wordLocation rows',
+                     title = 'Число строк в таблице wordLocation', grid = True, xlim=(0, None), ylim=(0, None))
+        plt.savefig('graph3.png')
+        plt.close()
+
+        self.df.plot(x = 'Number of indexed links', y = 'linkBetweenURL rows',
+                     title = 'Число строк в таблице linkBetweenURL', grid = True, xlim=(0, None), ylim=(0, None))
+        plt.savefig('graph4.png')
+        plt.close()
+
+        self.df.plot(x = 'Number of indexed links', y = 'linkWord rows',
+                     title = 'Число строк в таблице linkWord', grid = True, xlim=(0, None), ylim=(0, None))
+        plt.savefig('graph5.png')
+        plt.close()
+        
 
 if __name__ == '__main__':
 
     crawler = Crawler('DB.db')
-    # links = ['https://history.eco']
-    # links = ['https://elementy.ru/']
-    links = ['https://habr.com/ru/feed/']
-    # links = ['https://history.eco/', 'https://elementy.ru/']
+
+    links = ['https://habr.com/ru/feed/', 'https://www.tadviser.ru/']
 
     # links = ['http://127.0.0.1:8080/2_somepage.html']
     # links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
 
-    crawler.crawl(links, 1)
+    crawler.crawl(links, 2)

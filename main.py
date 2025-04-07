@@ -31,6 +31,10 @@ class Crawler:
 
         # работа со ссылками на странице
         filtered_links = self.indexingLinks(soup, link_rowid, url)
+
+        # помечаем страницу как индексированную
+        cursor = self.conn.cursor()
+        cursor.execute('UPDATE URLList SET isIndexed = 1 WHERE rowid = ?;', (link_rowid,))
             
         self.conn.commit()
         return filtered_links
@@ -41,7 +45,6 @@ class Crawler:
         for word in words:
             word_rowid = self.getEntryId('wordList', 'word', word)
             if not word_rowid: 
-                # Реализовать isFiltered для третьей колонки
                 cursor.execute('INSERT INTO wordList VALUES (?, ?, ?)', (None, word, self.isFiltered(word)))
                 word_rowid = cursor.lastrowid
             cursor.execute('INSERT INTO wordLocation VALUES (?, ?, ?, ?)', 
@@ -56,7 +59,7 @@ class Crawler:
             filtered_link = self.filteredLink(every_link, url)
             if filtered_link:
                 filtered_links.append(filtered_link)
-                self.insertLink(filtered_link)
+                self.insertLink(filtered_link, 0)
                 _a_tag_text = every_link.get_text().strip()
                 filtered_link_fk = self.getEntryId('URLList', 'URL', filtered_link)
                 self.addLinkRef(source_link_rowid, filtered_link_fk, _a_tag_text)
@@ -87,7 +90,8 @@ class Crawler:
             )
         cursor.execute('''CREATE TABLE IF NOT EXISTS URLList  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-                                    URL TEXT NOT NULL
+                                    URL TEXT NOT NULL,
+                                    isIndexed INTEGER NOT NULL
                 ); '''
             )
         cursor.execute('''CREATE TABLE IF NOT EXISTS wordLocation  (
@@ -125,8 +129,8 @@ class Crawler:
         row_id = cursor.fetchone()
         return None if row_id is None else row_id[0]
 
-    # Проиндексирован ли URL (проверка наличия URL в БД)
-    def isIndexed(self, url):
+    # проверка наличия URL в БД
+    def isFounded(self, url):
         result = self.getEntryId('URLList', 'URL', url)
         return False if result is None else True
  
@@ -148,7 +152,7 @@ class Crawler:
         if not new_link: return
         new_link = self.normalizeURL(new_link, sourceURL)
         if (not new_link) or ('#' in new_link): return
-        if self.isIndexed(new_link): return
+        if self.isFounded(new_link): return
         self.conn.commit()
         return new_link
 
@@ -163,10 +167,10 @@ class Crawler:
         normalized = parsed._replace(scheme=scheme, netloc=netloc)
         return urlunparse(normalized)  
     
-    def insertLink(self, link_):
+    def insertLink(self, link_, flag = 0):
         cursor = self.conn.cursor()
-        if not self.isIndexed(link_):
-            cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, link_))
+        if not self.isFounded(link_):
+            cursor.execute('INSERT INTO URLList VALUES (?, ?, ?);', (None, link_, flag))
     
     def isFiltered(self, word):
         # Исключим числа из индексации
@@ -184,13 +188,23 @@ class Crawler:
 
         urlList = [url_.rstrip('/') for url_ in urlList]
 
+        # Занесение в базу начальных ссылок
         for start_urls in urlList:
             if self.normalizeURL(start_urls, start_urls):
                 self.insertLink(start_urls)
         
+        cursor = self.conn.cursor()
         new_links = []
         for _ in range(0, maxDepth):
             for url_ in urlList: 
+
+                # Проверяем, проиндексирована ли страница
+                # Это позволит пауку стартовать с любой точки
+                # и не проходиться по уже индексированным страницам
+                cursor.execute('SELECT isIndexed FROM URLList WHERE URL = ?;', (url_,))
+                isIndexed = cursor.fetchone()[0]
+                if (isIndexed): continue
+                
                 print('indexing\033[32m', url_, '\033[0m')
                 html_doc = requests.get(url_)
                 html_doc.encoding = 'utf-8'
@@ -206,11 +220,12 @@ class Crawler:
 if __name__ == '__main__':
 
     crawler = Crawler('DB.db')
-    links = ['https://history.eco']
+    # links = ['https://history.eco']
     # links = ['https://www.reddit.com/?rdt=35077']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
-    # links = ['http://127.0.0.1:8080/2_somepage.html']
+    # links = ['http://127.0.0.1:8080/1_leguria.html']
+    links = ['http://127.0.0.1:8080/2_somepage.html']
     # links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
 
     crawler.crawl(links, 2)

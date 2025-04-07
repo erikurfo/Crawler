@@ -3,6 +3,9 @@ import sqlite3
 import re
 import requests
 from urllib.parse import urljoin, urlparse, urlunparse
+import pandas as pd
+import matplotlib.pyplot as plt
+from requests.exceptions import ReadTimeout
 
 class Crawler:
 
@@ -10,6 +13,12 @@ class Crawler:
         self.dbFileName = dbFileName
         self.conn = sqlite3.connect(self.dbFileName)
         self.initDB()
+        self.df = pd.DataFrame(columns = ['Number of indexed links',
+                                          'URLlist rows',
+                                          'wordList rows',
+                                          'wordLocation rows',
+                                          'linkBetweenURL rows',
+                                          'linkWord rows'])
 
     def __del__(self):
         self.conn.close()
@@ -31,10 +40,6 @@ class Crawler:
 
         # работа со ссылками на странице
         filtered_links = self.indexingLinks(soup, link_rowid, url)
-
-        # помечаем страницу как индексированную
-        cursor = self.conn.cursor()
-        cursor.execute('UPDATE URLList SET isIndexed = 1 WHERE rowid = ?;', (link_rowid,))
             
         self.conn.commit()
         return filtered_links
@@ -45,6 +50,7 @@ class Crawler:
         for word in words:
             word_rowid = self.getEntryId('wordList', 'word', word)
             if not word_rowid: 
+                # Реализовать isFiltered для третьей колонки
                 cursor.execute('INSERT INTO wordList VALUES (?, ?, ?)', (None, word, self.isFiltered(word)))
                 word_rowid = cursor.lastrowid
             cursor.execute('INSERT INTO wordLocation VALUES (?, ?, ?, ?)', 
@@ -59,7 +65,7 @@ class Crawler:
             filtered_link = self.filteredLink(every_link, url)
             if filtered_link:
                 filtered_links.append(filtered_link)
-                self.insertLink(filtered_link, 0)
+                self.insertLink(filtered_link)
                 _a_tag_text = every_link.get_text().strip()
                 filtered_link_fk = self.getEntryId('URLList', 'URL', filtered_link)
                 self.addLinkRef(source_link_rowid, filtered_link_fk, _a_tag_text)
@@ -90,8 +96,7 @@ class Crawler:
             )
         cursor.execute('''CREATE TABLE IF NOT EXISTS URLList  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-                                    URL TEXT NOT NULL,
-                                    isIndexed INTEGER NOT NULL
+                                    URL TEXT NOT NULL
                 ); '''
             )
         cursor.execute('''CREATE TABLE IF NOT EXISTS wordLocation  (
@@ -129,8 +134,8 @@ class Crawler:
         row_id = cursor.fetchone()
         return None if row_id is None else row_id[0]
 
-    # проверка наличия URL в БД
-    def isFounded(self, url):
+    # Проиндексирован ли URL (проверка наличия URL в БД)
+    def isIndexed(self, url):
         result = self.getEntryId('URLList', 'URL', url)
         return False if result is None else True
  
@@ -152,7 +157,7 @@ class Crawler:
         if not new_link: return
         new_link = self.normalizeURL(new_link, sourceURL)
         if (not new_link) or ('#' in new_link): return
-        if self.isFounded(new_link): return
+        if self.isIndexed(new_link): return
         self.conn.commit()
         return new_link
 
@@ -167,10 +172,10 @@ class Crawler:
         normalized = parsed._replace(scheme=scheme, netloc=netloc)
         return urlunparse(normalized)  
     
-    def insertLink(self, link_, flag = 0):
+    def insertLink(self, link_):
         cursor = self.conn.cursor()
-        if not self.isFounded(link_):
-            cursor.execute('INSERT INTO URLList VALUES (?, ?, ?);', (None, link_, flag))
+        if not self.isIndexed(link_):
+            cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, link_))
     
     def isFiltered(self, word):
         # Исключим числа из индексации
@@ -178,54 +183,65 @@ class Crawler:
 
     def monitoring(self):
         list_of_tables = ['URLList', 'wordList', 'wordLocation', 'linkBetweenURL', 'linkWord']
+        each_rows = []
         for every_table in list_of_tables:
             cursor = self.conn.cursor()
             cursor.execute(f'SELECT COUNT(*) FROM {every_table};')
-            print("There are\u001b[31m", cursor.fetchone()[0], "\u001b[0mrows in", every_table)
+            result = cursor.fetchone()[0]
+            print("There are\u001b[31m", result, "\u001b[0mrows in", every_table)
+            each_rows.append(result)
+        return each_rows
 
     # Непосредственно сам метод сбора данных
     def crawl(self, urlList, maxDepth = 1):
 
         urlList = [url_.rstrip('/') for url_ in urlList]
 
-        # Занесение в базу начальных ссылок
         for start_urls in urlList:
             if self.normalizeURL(start_urls, start_urls):
                 self.insertLink(start_urls)
         
-        cursor = self.conn.cursor()
+        number_of_indexed_link = 0
+        self.df.loc[0] = [0, 0, 0, 0, 0]
         new_links = []
         for _ in range(0, maxDepth):
             for url_ in urlList: 
-
-                # Проверяем, проиндексирована ли страница
-                # Это позволит пауку стартовать с любой точки
-                # и не проходиться по уже индексированным страницам
-                cursor.execute('SELECT isIndexed FROM URLList WHERE URL = ?;', (url_,))
-                isIndexed = cursor.fetchone()[0]
-                if (isIndexed): continue
-                
                 print('indexing\033[32m', url_, '\033[0m')
-                html_doc = requests.get(url_)
-                html_doc.encoding = 'utf-8'
-                soup = BeautifulSoup(html_doc.text, 'html.parser')
+                try:
+                    # Установите timeout в секундах (например, 10 секунд)
+                    html_doc = requests.get(url_, timeout = 10)
+                    html_doc.encoding = 'utf-8'
+                    soup = BeautifulSoup(html_doc.text, 'html.parser')
 
-                # Индексация и получение списка чистых ссылок со страниц
-                new_links += self.addToIndex(soup, url_)
-                self.monitoring()
+                    # Индексация и получение списка чистых ссылок со страниц
+                    new_links += self.addToIndex(soup, url_)
+                    number_of_indexed_link += 1
+                    self.df.loc[number_of_indexed_link] = [number_of_indexed_link] + self.monitoring()
+                    
+                except ReadTimeout:
+                    print(f"\033[31mTimeout exceeded for {url_}, skipping...\033[0m")
+                    continue  # Переходим к следующему URL
+                except Exception as e:
+                    print(f"\033[31mError processing {url_}: {str(e)}, skipping...\033[0m")
+                    continue  # Переходим к следующему URL
 
             urlList = [element for element in new_links]
         self.conn.commit()
+        print(self.df)
+
+        # Построение графиков
+        self.df.plot(x = 'Number of indexed links', y = 'URLlist rows',
+                     title = 'Число строк в таблице URLlist', )
 
 if __name__ == '__main__':
 
     crawler = Crawler('DB.db')
     # links = ['https://history.eco']
-    # links = ['https://www.reddit.com/?rdt=35077']
+    # links = ['https://elementy.ru/']
+    links = ['https://habr.com/ru/feed/']
     # links = ['https://history.eco/', 'https://elementy.ru/']
 
-    # links = ['http://127.0.0.1:8080/1_leguria.html']
-    links = ['http://127.0.0.1:8080/2_somepage.html']
+    # links = ['http://127.0.0.1:8080/2_somepage.html']
     # links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
 
     crawler.crawl(links, 2)

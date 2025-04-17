@@ -6,10 +6,12 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import pandas as pd
 import matplotlib.pyplot as plt
 from requests.exceptions import ReadTimeout
+import pymorphy2
 
 class Crawler:
 
     def __init__(self, dbFileName):
+        self.morph = pymorphy2.MorphAnalyzer()
         self.dbFileName = dbFileName
         self.conn = sqlite3.connect(self.dbFileName)
         self.initDB()
@@ -48,13 +50,16 @@ class Crawler:
         cursor = self.conn.cursor()
         word_location = 0
         for word in words:
+            if self.isFiltered(word):
+                continue  # пропускаем отфильтрованные слова
+
             word_rowid = self.getEntryId('wordList', 'word', word)
-            if not word_rowid: 
-                # Реализовать isFiltered для третьей колонки
-                cursor.execute('INSERT INTO wordList VALUES (?, ?, ?)', (None, word, self.isFiltered(word)))
+            if not word_rowid:
+                cursor.execute('INSERT INTO wordList VALUES (?, ?)', (None, word))
                 word_rowid = cursor.lastrowid
+
             cursor.execute('INSERT INTO wordLocation VALUES (?, ?, ?, ?)', 
-                           (None, word_rowid, source_link_rowid, word_location))
+                        (None, word_rowid, source_link_rowid, word_location))
             word_location += 1
     
     def indexingLinks(self, soup, source_link_rowid, url):
@@ -62,21 +67,26 @@ class Crawler:
         filtered_links = []
 
         for every_link in links_from_soup:
-            filtered_link = self.filteredLink(every_link, url)
+            filtered_link = self.filteredLink(every_link, url) 
             if filtered_link:
+                # Если ссылки нет в базе - добавляем
+                if not self.isAdded(filtered_link):
+                    self.insertLink(filtered_link)
+
                 filtered_links.append(filtered_link)
-                self.insertLink(filtered_link)
                 _a_tag_text = every_link.get_text().strip()
+
+                # Получаем идентификатор ссылки и записываем в linkBetweenURL
                 filtered_link_fk = self.getEntryId('URLList', 'URL', filtered_link)
                 self.addLinkRef(source_link_rowid, filtered_link_fk, _a_tag_text)
         return filtered_links
 
     def separateWords(self, text):
         words = text.split()
-        # Убираем знаки препинания, 
-        # переводим в нижний регистр и удаляем пустые элементы
         words = [re.sub(r'[^\w\s]', '', word) for word in words]
         words = [item.lower() for item in words if item != '']
+        # Лемматизация
+        words = [self.morph.parse(word)[0].normal_form for word in words]
         return words
  
     # Инициализация таблиц в БД
@@ -90,10 +100,9 @@ class Crawler:
 
         cursor.execute('''CREATE TABLE IF NOT EXISTS wordList  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-                                    word TEXT NOT NULL,
-                                    isFiltered INTEGER NOT NULL
-                ); '''
-            )
+                                    word TEXT NOT NULL
+                    ); '''
+        )
         cursor.execute('''CREATE TABLE IF NOT EXISTS URLList  (
                                     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                                     URL TEXT NOT NULL
@@ -135,7 +144,7 @@ class Crawler:
         return None if row_id is None else row_id[0]
 
     # Проиндексирован ли URL (проверка наличия URL в БД)
-    def isIndexed(self, url):
+    def isAdded(self, url):
         result = self.getEntryId('URLList', 'URL', url)
         return False if result is None else True
  
@@ -157,7 +166,6 @@ class Crawler:
         if not new_link: return
         new_link = self.normalizeURL(new_link, sourceURL)
         if (not new_link) or ('#' in new_link): return
-        if self.isIndexed(new_link): return
         self.conn.commit()
         return new_link
 
@@ -174,12 +182,18 @@ class Crawler:
     
     def insertLink(self, link_):
         cursor = self.conn.cursor()
-        if not self.isIndexed(link_):
+        if not self.isAdded(link_):
             cursor.execute('INSERT INTO URLList VALUES (?, ?);', (None, link_))
     
     def isFiltered(self, word):
-        # Исключим числа из индексации
-        return any(character.isdigit() for character in word)
+        if any(char.isdigit() for char in word):
+            return True
+        if len(word) < 3:
+            return True
+
+        parsed = self.morph.parse(word)[0]
+        bad_pos = {'PREP', 'CONJ', 'PRCL', 'INTJ'}
+        return parsed.tag.POS in bad_pos
 
     def monitoring(self):
         list_of_tables = ['URLList', 'wordList', 'wordLocation', 'linkBetweenURL', 'linkWord']
@@ -227,7 +241,7 @@ class Crawler:
 
             urlList = [element for element in new_links]
         self.conn.commit()
-        self.graphs()
+        # self.graphs()
 
     # Построение графиков
     def graphs(self):
@@ -266,4 +280,4 @@ if __name__ == '__main__':
     # links = ['http://127.0.0.1:8080/2_somepage.html']
     # links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
 
-    crawler.crawl(links, 2)
+    crawler.crawl(links, 1)

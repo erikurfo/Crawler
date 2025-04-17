@@ -1,30 +1,38 @@
 import sqlite3
+import pymorphy2
 
 class Searcher:
     def __init__(self, dbFileName):
         self.con = sqlite3.connect(dbFileName)
+        self.morph = pymorphy2.MorphAnalyzer()
 
     def __del__(self):
         self.con.close()
 
+    def lemmatize(self, word):
+        return self.morph.parse(word)[0].normal_form
+
     def getWordsIds(self, queryString):
         queryWords = queryString.lower().split(" ")
+        lemmas = [self.lemmatize(word) for word in queryWords]
         rowidList = []
-        for word in queryWords:
-            res = self.con.execute("SELECT rowid FROM wordList WHERE word=?", (word,)).fetchone()
+        for lemma in lemmas:
+            res = self.con.execute("SELECT rowid FROM wordList WHERE word=?", (lemma,)).fetchone()
             if res:
                 rowidList.append(res[0])
             else:
-                raise Exception(f"Слово '{word}' не найдено в индексе.")
+                raise Exception(f"Слово '{lemma}' не найдено в индексе.")
         return rowidList
 
     def getMatchRows(self, queryString):
         wordsList = queryString.lower().split(" ")
+        lemmas = [self.lemmatize(w) for w in wordsList]
         wordIds = self.getWordsIds(queryString)
+
         fieldList = ["w0.fk_URLId"]
         tableList = ["wordLocation w0"]
         clauseList = [f"w0.fk_wordId={wordIds[0]}"]
-        for i in range(1, len(wordsList)):
+        for i in range(1, len(lemmas)):
             tableList.append(f"wordLocation w{i}")
             clauseList.append(f"w{i}.fk_wordId={wordIds[i]}")
             clauseList.append(f"w0.fk_URLId=w{i}.fk_URLId")
@@ -35,6 +43,9 @@ class Searcher:
         return [row for row in cur], wordIds
 
     def normalizeScores(self, scores, smallIsBetter=False):
+        if not scores:
+            return {}
+
         vsmall = 0.00001
         minscore = min(scores.values())
         maxscore = max(scores.values())
@@ -48,6 +59,9 @@ class Searcher:
         return result
 
     def frequencyScore(self, rowsLoc):
+        if not rowsLoc:
+            return {}
+
         counts = {}
         for row in rowsLoc:
             counts[row[0]] = counts.get(row[0], 0) + 1
@@ -72,6 +86,9 @@ class Searcher:
             self.con.commit()
 
     def pagerankScore(self, rowsLoc):
+        if not rowsLoc:
+            return {}
+
         scores = {}
         for row in rowsLoc:
             pr = self.con.execute("SELECT score FROM pagerank WHERE urlid=?", (row[0],)).fetchone()
@@ -84,10 +101,19 @@ class Searcher:
         return res[0] if res else ""
 
     def getSortedList(self, queryString):
-        rowsLoc, _ = self.getMatchRows(queryString)
+        try:
+            rowsLoc, _ = self.getMatchRows(queryString)
+        except Exception as e:
+            print("Ошибка:", e)
+            return
+
+        if not rowsLoc:
+            print("По запросу ничего не найдено.")
+            return
 
         m1 = self.frequencyScore(rowsLoc)
         m2 = self.pagerankScore(rowsLoc)
+
         scores = {}
         for urlid in m1:
             scores[urlid] = (m1.get(urlid, 0) + m2.get(urlid, 0)) / 2.0
@@ -98,14 +124,14 @@ class Searcher:
 
 
 if __name__ == "__main__":
-    db_filename = "DB1.db"  # Имя базы данных
-    query = input("Введите поисковый запрос (через пробел): ")  # Например: "если друг"
+    db_filename = "DB.db"
 
     searcher = Searcher(db_filename)
 
-    # Вычисляем PageRank заранее (если ещё не вычислялся)
-    searcher.calculatePageRank()
+    # Вычисляем PageRank
+    # searcher.calculatePageRank()
 
+    query = input("Введите поисковый запрос (через пробел): ")
     print("\nРезультаты ранжирования по запросу:", query)
     print("="*50)
     searcher.getSortedList(query)

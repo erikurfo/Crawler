@@ -222,8 +222,8 @@ class Crawler:
             for url_ in urlList: 
                 print('indexing\033[32m', url_, '\033[0m')
                 try:
-                    # Установите timeout в секундах (например, 10 секунд)
-                    html_doc = requests.get(url_, timeout = 10)
+                    # timeout в секундах
+                    html_doc = requests.get(url_, timeout = 5)
                     html_doc.encoding = 'utf-8'
                     soup = BeautifulSoup(html_doc.text, 'html.parser')
 
@@ -241,7 +241,7 @@ class Crawler:
 
             urlList = [element for element in new_links]
         self.conn.commit()
-        # self.graphs()
+        self.graphs()
 
     # Построение графиков
     def graphs(self):
@@ -275,9 +275,6 @@ if __name__ == '__main__':
 
     crawler = Crawler('DB.db')
 
-    links = ['https://habr.com/ru/feed/', 'https://www.tadviser.ru/']
+    links = ['https://www.gazeta.ru/', 'https://ria.ru']
 
-    # links = ['http://127.0.0.1:8080/2_somepage.html']
-    # links = ['http://127.0.0.1:8080/1_leguria.html', 'http://127.0.0.1:8080/2_somepage.html']
-
-    crawler.crawl(links, 1)
+    crawler.crawl(links, 2)

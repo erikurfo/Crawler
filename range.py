@@ -1,6 +1,8 @@
 import sqlite3
 import pymorphy2
-from concurrent.futures import ThreadPoolExecutor
+from bs4 import BeautifulSoup
+import requests
+import re
 
 class Searcher:
 
@@ -11,11 +13,9 @@ class Searcher:
     def __del__(self):
         self.con.close()
 
-    # Лемматизация
     def lemmatize(self, word):
         return self.morph.parse(word)[0].normal_form
 
-    # Получение id слов
     def getWordsIds(self, lemmas):
         rowidList = []
         for lemma in lemmas:
@@ -45,6 +45,7 @@ class Searcher:
         cur = self.con.execute(sql)
         return [row for row in cur]
 
+    # Нормализация собранных значений
     def normalizeScores(self, scores, smallIsBetter = False):
         if not scores:
             return {}
@@ -70,19 +71,28 @@ class Searcher:
             counts[row[0]] = counts.get(row[0], 0) + 1
         return self.normalizeScores(counts, smallIsBetter=False)
 
-    def calculatePageRank(self, iterations=20):
+    def calculatePageRank(self, iterations = 20):
         self.con.execute("DROP TABLE IF EXISTS pagerank")
         self.con.execute("CREATE TABLE pagerank (urlid INTEGER PRIMARY KEY, score REAL)")
         self.con.execute("INSERT INTO pagerank SELECT rowid, 1.0 FROM URLList")
         self.con.commit()
 
         for i in range(iterations):
-            print(f"PageRank итерация {i+1}")
+            print(f"PageRank итерация {i + 1}")
+
+            # Вычисляем PageRank для каждой страницы
             for (urlid,) in self.con.execute("SELECT rowid FROM URLList"):
-                pr = 0.15
+                pr = 0.15 # начальная оценка
+
+                # Ищем все страницы, ссылающиеся на данную
                 for (linker,) in self.con.execute("SELECT fk_FromURL_Id FROM linkBetweenURL WHERE fk_ToURLId=?", (urlid,)):
+
+                    # берем значение score каждой ссылающейся на данную страницы
                     linkingpr = self.con.execute("SELECT score FROM pagerank WHERE urlid=?", (linker,)).fetchone()[0]
+                    # смотрим, на сколько еще страниц ссылается каждая из ссылок
                     linkingcount = self.con.execute("SELECT COUNT(*) FROM linkBetweenURL WHERE fk_FromURL_Id=?", (linker,)).fetchone()[0]
+
+                    # накапливаем оценку
                     if linkingcount != 0:
                         pr += 0.85 * (linkingpr / linkingcount)
                 self.con.execute("UPDATE pagerank SET score=? WHERE urlid=?", (pr, urlid))
@@ -133,11 +143,63 @@ class Searcher:
         print("│urlid│  M1  │  M2  │  M3  │  URL_text   ")
         print("├─────┼──────┼──────┼──────┼──────────────────────────────────────────────────────────────────────────────")
 
-        for urlid, (m1_val, m2_val, m3_val) in sortedScores[:20]:
+        for index, (urlid, (m1_val, m2_val, m3_val)) in enumerate(sortedScores[:5]):  # Top-5
             url_text = self.geturlname(urlid)
             print(f"│ {urlid:<4}│ {m1_val:<4.2f} │ {m2_val:<4.2f} │ {m3_val:<4.2f} │ {url_text:<10}")
 
+            # Получаем и сохраняем HTML (при необходимости)
+            # self.saveHTML(url_text, queryString, index)
+
+
         print("└─────┴──────┴──────┴──────┴──────────────────────────────────────────────────────────────────────────────")
+
+    # сохраняем HTML при необходимости
+    def saveHTML(self, url_text, queryString, index):
+        pageText = self.getTextByURL(url_text)
+        queryWords = queryString.lower().split()
+        filename = f"result_{index + 1}.html"
+        self.createMarkedHtmlFile(filename, pageText, queryWords)
+        # print(f" → HTML с подсветкой слов сохранён в: {filename}")
+
+
+    # получаем текст станиц, на которых есть искомые слова
+    def getTextByURL(self, url):
+        try:
+            response = requests.get(url, timeout=5)
+            response.encoding = 'utf-8'  # или использовать response.apparent_encoding
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Удалим скрипты и стили
+            listOfUnwantedItems = ['script', 'style']
+            for script in soup.find_all(listOfUnwantedItems):
+                script.decompose()
+            return soup.get_text()
+        
+        except Exception as e:
+            print(f"Не удалось получить текст по URL: {url}. Ошибка: {e}")
+            return ""
+        
+    def getMarkedHTML(self, wordList, queryList):
+        querySet = set(q.lower() for q in queryList)
+        markedText = ""
+
+        for word in wordList:
+            cleanWord = word.lower()
+            if cleanWord in querySet:
+                markedText += f'<span style="background-color:yellow">{word}</span> '
+            else:
+                markedText += word + " "
+
+        return f"<html><body><p>{markedText}</p></body></html>"
+    
+    def createMarkedHtmlFile(self, markedHTMLFilename, testText, testQueryList):
+        testText = testText.lower()
+        testQueryList = [w.lower() for w in testQueryList]
+        wordList = re.findall(r"[\w]+|[\n.,!?:—]", testText)
+        htmlCode = self.getMarkedHTML(wordList, testQueryList)
+
+        with open(markedHTMLFilename, 'w', encoding='utf-8') as file:
+            file.write(htmlCode)
 
 
 if __name__ == "__main__":

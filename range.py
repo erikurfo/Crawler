@@ -39,11 +39,10 @@ class Searcher:
         lemmas = [self.lemmatize(w) for w in wordsList if self.morph.parse(w)[0].tag.POS not in bad_pos]
 
         wordIds = self.getWordsIds(lemmas)
-        if not wordIds:
-            raise Exception("Ни одно слово не найдено в словаре.")
+        print(wordIds)
 
         # Построение SQL-запроса динамически
-        fieldList = ["w0.fk_URLId"]  # id страницы
+        fieldList = ["w0.fk_URLId", "w0.location"]
         tableList = ["wordLocation w0"]
         clauseList = [f"w0.fk_wordId={wordIds[0]}"]
 
@@ -51,7 +50,7 @@ class Searcher:
             tableList.append(f"wordLocation w{i}")
             clauseList.append(f"w{i}.fk_wordId={wordIds[i]}")
             clauseList.append(f"w0.fk_URLId=w{i}.fk_URLId")
-            fieldList.append(f"w{i}.location")  # добавляем позиции других слов
+            fieldList.append(f"w{i}.location")
 
         sql = f"""
         SELECT {', '.join(fieldList)}
@@ -59,6 +58,7 @@ class Searcher:
         WHERE {' AND '.join(clauseList)}
         """
         cur = self.con.execute(sql)
+
         rows = [row for row in cur]
         return rows
 
@@ -68,13 +68,14 @@ class Searcher:
         - smallIsBetter: чем меньше значение, тем лучше
         - иначе: чем больше, тем лучше
         """
-        if not scores:
-            return {}
 
         vsmall = 0.00001
+        # берем минимальное и максимальное значение
         minscore = min(scores.values())
         maxscore = max(scores.values())
+        # вычисляем диапазон
         range_ = maxscore - minscore if maxscore != minscore else 1.0
+
         result = {}
 
         for key, value in scores.items():
@@ -85,15 +86,11 @@ class Searcher:
         return result
 
     def frequencyScore(self, rowsLoc):
-        """
-        Подсчет количества вхождений комбинаций слов (по urlid).
-        """
-        if not rowsLoc:
-            return {}
         counts = {}
         for row in rowsLoc:
             urlid = row[0]
             counts[urlid] = counts.get(urlid, 0) + 1
+        print(counts)
         return self.normalizeScores(counts, smallIsBetter=False)
 
     def calculatePageRank(self, iterations=20):
@@ -148,13 +145,9 @@ class Searcher:
             print(f"Ошибка: {e}")
             return
 
-        if not rowsLoc:
-            print("По запросу ничего не найдено.")
-            return
-        
-        print(rowsLoc[:10])
-
+        # Расчет метрик
         m1 = self.frequencyScore(rowsLoc)
+        print(m1)
         m2 = self.pagerankScore(rowsLoc)
 
         scores = {}
@@ -164,16 +157,18 @@ class Searcher:
             m3_val = (m1_val + m2_val) / 2.0
             scores[urlid] = (m1_val, m2_val, m3_val)
 
+        # сортировка по третьей метрике
         sortedScores = sorted(scores.items(), key=lambda x: x[1][2], reverse=True)
 
         print("┌─────┬──────┬──────┬──────┬─────────────────────────────────────────────────────────────")
         print("│urlid│  M1  │  M2  │  M3  │ URL")
         print("├─────┼──────┼──────┼──────┼─────────────────────────────────────────────────────────────")
         for index, (urlid, (m1_val, m2_val, m3_val)) in enumerate(sortedScores[:10]):
-            url_text = self.geturlname(urlid)
+
             print(f"│ {urlid:<4}│ {m1_val:<4.2f} │ {m2_val:<4.2f} │ {m3_val:<4.2f} │ {url_text}")
 
             # Получаем и сохраняем HTML (при необходимости)
+            # url_text = self.geturlname(urlid)
             # self.saveHTML(url_text, queryString, index)
 
         print("└─────┴──────┴──────┴──────┴─────────────────────────────────────────────────────────────")

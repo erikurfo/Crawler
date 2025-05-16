@@ -13,13 +13,8 @@ class Searcher:
     def __del__(self):
         self.con.close()
 
-    def lemmatize(self, word):
-        return self.morph.parse(word)[0].normal_form
-
     def getWordsIds(self, lemmas):
-        """
-        Получает список rowid для каждой леммы из таблицы wordList.
-        """
+        # Получаем id слов из индекса
         rowidList = []
         for lemma in lemmas:
             res = self.con.execute("SELECT rowid FROM wordList WHERE word = ?", (lemma,)).fetchone()
@@ -28,12 +23,14 @@ class Searcher:
             else:
                 raise Exception(f"Слово '{lemma}' не найдено в индексе.")
         return rowidList
+    
+    def lemmatize(self, word):
+        # лемматизируем слова
+        return self.morph.parse(word)[0].normal_form
 
     def getMatchRows(self, queryString):
-        """
-        Формирует список кортежей вида (urlid, loc1, loc2, ...)
-        для всех вхождений слов из поискового запроса на одной и той же странице.
-        """
+        # Формирует список кортежей вида (urlid, loc1, loc2, ...)
+        # для всех вхождений слов из поискового запроса на одной и той же странице
         wordsList = queryString.lower().split(" ")
         bad_pos = {'PREP', 'CONJ', 'PRCL', 'INTJ'}
         lemmas = [self.lemmatize(w) for w in wordsList if self.morph.parse(w)[0].tag.POS not in bad_pos]
@@ -63,11 +60,7 @@ class Searcher:
         return rows
 
     def normalizeScores(self, scores, smallIsBetter=False):
-        """
-        Нормализация значений: от 0.0 до 1.0. Поддерживает оба режима:
-        - smallIsBetter: чем меньше значение, тем лучше
-        - иначе: чем больше, тем лучше
-        """
+        # Нормализация значений: от 0.0 до 1.0
 
         vsmall = 0.00001
         # берем минимальное и максимальное значение
@@ -86,6 +79,7 @@ class Searcher:
         return result
 
     def frequencyScore(self, rowsLoc):
+        # частота
         counts = {}
         for row in rowsLoc:
             urlid = row[0]
@@ -94,9 +88,7 @@ class Searcher:
         return self.normalizeScores(counts, smallIsBetter=False)
 
     def calculatePageRank(self, iterations=20):
-        """
-        Итеративный расчет PageRank на основе ссылок между страницами.
-        """
+        # Расчет PageRank
         self.con.execute("DROP TABLE IF EXISTS pagerank")
         self.con.execute("CREATE TABLE pagerank (urlid INTEGER PRIMARY KEY, score REAL)")
         self.con.execute("INSERT INTO pagerank SELECT rowid, 1.0 FROM URLList")
@@ -121,9 +113,7 @@ class Searcher:
             self.con.commit()
 
     def pagerankScore(self, rowsLoc):
-        """
-        Получение и нормализация PageRank значений для страниц, содержащих искомые слова.
-        """
+        # Получение и нормализация PageRank
         scores = {}
         for row in rowsLoc:
             urlid = row[0]
@@ -135,9 +125,8 @@ class Searcher:
         return res[0] if res else ""
 
     def getSortedList(self, queryString):
-        """
-        Вывод таблицы с ранжированием по метрикам M1 (частота), M2 (PageRank), M3 (среднее).
-        """
+        # Вывод таблицы с ранжированием по метрикам 
+        # M1 (частота), M2 (PageRank), M3 (среднее)
         try:
             rowsLoc = self.getMatchRows(queryString)
         except Exception as e:
@@ -189,14 +178,22 @@ class Searcher:
             return ""
 
     def getMarkedHTML(self, wordList, queryList):
-        querySet = set(q.lower() for q in queryList)
+        # Преобразуем слова запроса в множество лемм
+        querySet = set(self.morph.parse(word)[0].normal_form for word in queryList)
+
         markedText = ""
+
         for word in wordList:
-            cleanWord = word.lower()
-            if cleanWord in querySet:
+            # Лемматизируем слово из текста
+            cleanWord = word.strip().lower()
+            lemma = self.morph.parse(cleanWord)[0].normal_form
+
+            # Если лемма входит в множество запросов — подсвечиваем
+            if lemma in querySet:
                 markedText += f'<span style="background-color:yellow">{word}</span> '
             else:
                 markedText += word + " "
+
         return f"<html><body><p>{markedText}</p></body></html>"
 
     def createMarkedHtmlFile(self, markedHTMLFilename, testText, testQueryList):
@@ -216,10 +213,8 @@ if __name__ == "__main__":
     # Вычисляем PageRank
     # searcher.calculatePageRank()
 
-    # query = input("Введите поисковый запрос (через пробел): ")
-    # print("\nРезультаты ранжирования по запросу:", query)
-
-    query = "Президент России"
+    query = input("Введите поисковый запрос (через пробел): ")
+    print("\nРезультаты ранжирования по запросу:", query)
     print("="*50)
     searcher.getSortedList(query)
     print("="*50)

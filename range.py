@@ -155,13 +155,17 @@ class Searcher:
             print(f"│ {urlid:<4}│ {m1_val:<4.2f} │ {m2_val:<4.2f} │ {m3_val:<4.2f} │ {url_text}")
 
             # Получаем и сохраняем HTML (при необходимости)
-            # self.saveHTML(url_text, queryString, index)
+            self.saveHTML(url_text, queryString, index)
 
         print("└─────┴──────┴──────┴──────┴─────────────────────────────────────────────────────────────")
 
     def saveHTML(self, url_text, queryString, index):
         pageText = self.getTextByURL(url_text)
+
         queryWords = queryString.lower().split()
+        bad_pos = {'PREP', 'CONJ', 'PRCL', 'INTJ'}
+        queryWords = [word for word in queryWords if self.morph.parse(word)[0].tag.POS not in bad_pos]
+
         filename = f"result_{index + 1}.html"
         self.createMarkedHtmlFile(filename, pageText, queryWords)
 

@@ -151,6 +151,8 @@ class Searcher:
         if not rowsLoc:
             print("По запросу ничего не найдено.")
             return
+        
+        print(rowsLoc[:10])
 
         m1 = self.frequencyScore(rowsLoc)
         m2 = self.pagerankScore(rowsLoc)

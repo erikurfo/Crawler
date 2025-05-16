@@ -1,0 +1,3 @@
+
+            # Получаем и сохраняем HTML (при необходимости)
+            # self.saveHTML(url_text, queryString, index)

@@ -106,9 +106,15 @@ class Searcher:
             print(f"PageRank итерация {i + 1}")
             for (urlid,) in self.con.execute("SELECT rowid FROM URLList"):
                 pr = 0.15
+                
+                # для каждой страницы, которая ссылается на текущую
                 for (linker,) in self.con.execute("SELECT fk_FromURL_Id FROM linkBetweenURL WHERE fk_ToURLId=?", (urlid,)):
+
+                    # получаем PageRank
                     linkingpr = self.con.execute("SELECT score FROM pagerank WHERE urlid=?", (linker,)).fetchone()[0]
+                    # и считаем, на сколько страниц ссылается эта ссылка
                     linkingcount = self.con.execute("SELECT COUNT(*) FROM linkBetweenURL WHERE fk_FromURL_Id=?", (linker,)).fetchone()[0]
+
                     if linkingcount != 0:
                         pr += 0.85 * (linkingpr / linkingcount)
                 self.con.execute("UPDATE pagerank SET score=? WHERE urlid=?", (pr, urlid))
@@ -118,20 +124,13 @@ class Searcher:
         """
         Получение и нормализация PageRank значений для страниц, содержащих искомые слова.
         """
-        if not rowsLoc:
-            return {}
         scores = {}
         for row in rowsLoc:
             urlid = row[0]
-            pr = self.con.execute("SELECT score FROM pagerank WHERE urlid=?", (urlid,)).fetchone()
-            if pr:
-                scores[urlid] = pr[0]
+            scores[urlid] = self.con.execute("SELECT score FROM pagerank WHERE urlid=?", (urlid,)).fetchone()[0]
         return self.normalizeScores(scores, smallIsBetter=False)
 
     def geturlname(self, urlid):
-        """
-        Получение URL по id страницы.
-        """
         res = self.con.execute("SELECT URL FROM URLList WHERE rowid=?", (urlid,)).fetchone()
         return res[0] if res else ""
 
@@ -147,7 +146,6 @@ class Searcher:
 
         # Расчет метрик
         m1 = self.frequencyScore(rowsLoc)
-        print(m1)
         m2 = self.pagerankScore(rowsLoc)
 
         scores = {}
@@ -164,11 +162,10 @@ class Searcher:
         print("│urlid│  M1  │  M2  │  M3  │ URL")
         print("├─────┼──────┼──────┼──────┼─────────────────────────────────────────────────────────────")
         for index, (urlid, (m1_val, m2_val, m3_val)) in enumerate(sortedScores[:10]):
-
+            url_text = self.geturlname(urlid)
             print(f"│ {urlid:<4}│ {m1_val:<4.2f} │ {m2_val:<4.2f} │ {m3_val:<4.2f} │ {url_text}")
 
             # Получаем и сохраняем HTML (при необходимости)
-            # url_text = self.geturlname(urlid)
             # self.saveHTML(url_text, queryString, index)
 
         print("└─────┴──────┴──────┴──────┴─────────────────────────────────────────────────────────────")

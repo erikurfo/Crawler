@@ -36,7 +36,7 @@ class Searcher:
         lemmas = [self.lemmatize(w) for w in wordsList if self.morph.parse(w)[0].tag.POS not in bad_pos]
 
         wordIds = self.getWordsIds(lemmas)
-        print(wordIds)
+        # print(wordIds)
 
         # Построение SQL-запроса динамически
         fieldList = ["w0.fk_URLId", "w0.location"]
@@ -57,6 +57,7 @@ class Searcher:
         cur = self.con.execute(sql)
 
         rows = [row for row in cur]
+
         return rows
 
     def normalizeScores(self, scores, smallIsBetter=False):
@@ -84,7 +85,6 @@ class Searcher:
         for row in rowsLoc:
             urlid = row[0]
             counts[urlid] = counts.get(urlid, 0) + 1
-        print(counts)
         return self.normalizeScores(counts, smallIsBetter=False)
 
     def calculatePageRank(self, iterations=20):
@@ -144,18 +144,18 @@ class Searcher:
             m3_val = (m1_val + m2_val) / 2.0
             scores[urlid] = (m1_val, m2_val, m3_val)
 
-        # сортировка по третьей метрике
+        # сортировка по третьей метрике (среднему)
         sortedScores = sorted(scores.items(), key=lambda x: x[1][2], reverse=True)
 
         print("┌─────┬──────┬──────┬──────┬─────────────────────────────────────────────────────────────")
-        print("│urlid│  M1  │  M2  │  M3  │ URL")
+        print("│urlid│  fr  │  PR  │  av  │ URL")
         print("├─────┼──────┼──────┼──────┼─────────────────────────────────────────────────────────────")
         for index, (urlid, (m1_val, m2_val, m3_val)) in enumerate(sortedScores[:10]):
             url_text = self.geturlname(urlid)
             print(f"│ {urlid:<4}│ {m1_val:<4.2f} │ {m2_val:<4.2f} │ {m3_val:<4.2f} │ {url_text}")
 
             # Получаем и сохраняем HTML (при необходимости)
-            self.saveHTML(url_text, queryString, index)
+            # self.saveHTML(url_text, queryString, index)
 
         print("└─────┴──────┴──────┴──────┴─────────────────────────────────────────────────────────────")
 
@@ -182,8 +182,10 @@ class Searcher:
             return ""
 
     def getMarkedHTML(self, wordList, queryList):
-        # Преобразуем слова запроса в множество лемм
-        querySet = set(self.morph.parse(word)[0].normal_form for word in queryList)
+        # Создаем словарь {лемма: цвет} для слов запроса
+        colors = ['red', 'blue', 'orange', 'pink', 'cyan']
+        query_lemmas = [self.morph.parse(word)[0].normal_form for word in queryList]
+        lemma_to_color = {lemma: colors[i % len(colors)] for i, lemma in enumerate(set(query_lemmas))}
 
         markedText = ""
 
@@ -192,9 +194,9 @@ class Searcher:
             cleanWord = word.strip().lower()
             lemma = self.morph.parse(cleanWord)[0].normal_form
 
-            # Если лемма входит в множество запросов — подсвечиваем
-            if lemma in querySet:
-                markedText += f'<span style="background-color:yellow">{word}</span> '
+            # Если лемма входит в словарь запросов — подсвечиваем соответствующим цветом
+            if lemma in lemma_to_color:
+                markedText += f'<span style="background-color:{lemma_to_color[lemma]}">{word}</span> '
             else:
                 markedText += word + " "
 
@@ -217,8 +219,10 @@ if __name__ == "__main__":
     # Вычисляем PageRank
     # searcher.calculatePageRank()
 
-    query = input("Введите поисковый запрос (через пробел): ")
-    print("\nРезультаты ранжирования по запросу:", query)
+    # query = input("Введите поисковый запрос (через пробел): ")
+    # print("\nРезультаты ранжирования по запросу:", query)
+
+    query = "Президент России"
     print("="*50)
     searcher.getSortedList(query)
     print("="*50)

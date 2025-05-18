@@ -273,8 +273,8 @@ class Crawler:
 
 if __name__ == '__main__':
 
-    crawler = Crawler('DB.db')
+    crawler = Crawler('DB1.db')
 
-    links = ['https://www.gazeta.ru/', 'https://ria.ru']
+    links = ['https://www.gazeta.ru', 'https://ria.ru']
 
     crawler.crawl(links, 2)
